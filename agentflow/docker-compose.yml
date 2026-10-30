@@ -1,0 +1,23 @@
+services:
+  agentflow:
+    build: .
+    image: agentflow:latest
+    ports:
+      - "8000:8000"
+    environment:
+      # The agent needs an LLM: set ONE key in .env (see .env.example)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-auto}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5-5}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      MAX_ITERATIONS: ${MAX_ITERATIONS:-3}
+      WEB_ENABLED: ${WEB_ENABLED:-true}
+    volumes:
+      - agentflow_data:/data
+      # Drop your own files into ./knowledge_base and they are indexed at startup:
+      - ./knowledge_base:/app/knowledge_base:ro
+    restart: unless-stopped
+
+volumes:
+  agentflow_data:

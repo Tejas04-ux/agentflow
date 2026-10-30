@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentFlow – AI Research Agent</title>
+<style>
+  :root{--bg:#f6f7f9;--panel:#fff;--ink:#16181d;--muted:#6b7280;--line:#e5e7eb;--brand:#7c3aed;--ok:#16a34a;--bad:#dc2626;--chip:#f1edfd}
+  @media (prefers-color-scheme:dark){:root{--bg:#0f1115;--panel:#171a21;--ink:#e8eaf0;--muted:#8b93a3;--line:#262a34;--brand:#a78bfa;--chip:#241d3a}}
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink);display:flex;height:100vh}
+  aside{width:290px;background:var(--panel);border-right:1px solid var(--line);padding:18px;display:flex;flex-direction:column}
+  h1{font-size:18px;margin:0}.sub{color:var(--muted);font-size:13px;margin:2px 0 14px}
+  h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:14px 0 6px}
+  #drop{border:2px dashed var(--line);border-radius:12px;padding:16px;text-align:center;color:var(--muted);font-size:13px;cursor:pointer}
+  #drop:hover,#drop.over{border-color:var(--brand);color:var(--brand)}
+  #st{font-size:12px;min-height:18px;margin:6px 0;color:var(--muted)}
+  #docs{list-style:none;margin:0;padding:0;overflow:auto;flex:1}
+  #docs li{display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:7px 9px;margin-bottom:6px;font-size:13px}
+  #docs .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #docs button{background:none;border:0;cursor:pointer;color:var(--muted);font-size:16px}#docs button:hover{color:var(--bad)}
+  #badge{font-size:11px;color:var(--muted);border-top:1px solid var(--line);padding-top:8px}
+  main{flex:1;display:flex;flex-direction:column;min-width:0}
+  #out{flex:1;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;max-width:820px}
+  .q{align-self:flex-end;background:var(--brand);color:#fff;border:0;padding:10px 14px;border-radius:14px 14px 4px 14px}
+  .ans{white-space:pre-wrap;word-wrap:break-word}
+  .badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .b{font-size:12px;padding:2px 9px;border-radius:99px;background:var(--chip);color:var(--brand)}
+  .b.ok{background:#dcfce7;color:#166534}.b.warn{background:#fef3c7;color:#92400e}
+  .note{font-size:13px;color:#92400e;margin-top:8px}
+  details{margin-top:10px;font-size:13px}summary{cursor:pointer;color:var(--brand)}
+  .step{display:flex;gap:8px;padding:5px 0;border-bottom:1px dashed var(--line)}
+  .step .n{font-weight:600;min-width:84px}.step .d{color:var(--muted);flex:1}.step .ms{color:var(--muted);font-variant-numeric:tabular-nums}
+  .pass{color:var(--ok)}.fail{color:var(--bad)}
+  .src{border:1px solid var(--line);border-radius:10px;padding:7px 10px;margin-top:6px}
+  .src a{color:var(--brand);word-break:break-all}.src .tx{color:var(--muted);max-height:4.4em;overflow:hidden}
+  form{display:flex;gap:10px;padding:16px 24px;background:var(--panel);border-top:1px solid var(--line)}
+  input[type=text]{flex:1;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit}
+  #go{padding:0 22px;border:0;border-radius:12px;background:var(--brand);color:#fff;font:inherit;font-weight:600;cursor:pointer}#go:disabled{opacity:.5}
+  .empty{margin:auto;text-align:center;color:var(--muted);max-width:420px}
+  @media(max-width:760px){aside{display:none}}
+</style>
+</head>
+<body>
+<aside>
+  <h1>AgentFlow</h1><div class="sub">Supervisor-routed research agent</div>
+  <h3>Knowledge base</h3>
+  <div id="drop">Drop files or click to add<br><span style="font-size:11px">PDF · DOCX · TXT · MD</span></div>
+  <input id="file" type="file" accept=".pdf,.docx,.txt,.md" multiple hidden>
+  <div id="st"></div>
+  <ul id="docs"></ul>
+  <div id="badge"></div>
+</aside>
+<main>
+  <div id="out"><div class="empty" id="empty">Ask anything. The supervisor routes your question to your documents, the web, or the model — and a validator checks the answer before you see it.</div></div>
+  <form id="f"><input id="q" type="text" maxlength="2000" autocomplete="off" placeholder="e.g. What is the refund policy for annual plans?"><button id="go">Ask</button></form>
+</main>
+<script>
+const $=s=>document.querySelector(s), out=$('#out');
+const el=(t,c,x)=>{const e=document.createElement(t); if(c)e.className=c; if(x!==undefined)e.textContent=x; return e;};
+async function api(p,o){const r=await fetch(p,o);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||r.statusText);return j;}
+const st=(t,bad)=>{$('#st').textContent=t;$('#st').style.color=bad?'var(--bad)':'var(--muted)';};
+
+async function refresh(){
+  const [d,h]=await Promise.all([api('/api/documents'),api('/api/health')]);
+  const ul=$('#docs');ul.innerHTML='';
+  d.documents.forEach(x=>{const li=el('li');const n=el('span','nm',x.name);n.title=x.name;
+    const b=el('button','','×');b.onclick=async()=>{await api('/api/documents/'+x.id,{method:'DELETE'});refresh();};
+    li.append(n,el('span','',x.chunks+' chunks'),b);ul.append(li);});
+  $('#badge').textContent=h.agent_ready?('LLM: '+h.llm_provider+' · web '+(h.web_enabled?'on':'off')):'⚠ No API key set – agent disabled';
+}
+async function upload(files){for(const f of files){st('Indexing '+f.name+'…');const fd=new FormData();fd.append('file',f);
+  try{const r=await api('/api/documents',{method:'POST',body:fd});st('Indexed '+r.name);}catch(e){st(f.name+': '+e.message,true);}}refresh();}
+const drop=$('#drop'),fi=$('#file');drop.onclick=()=>fi.click();fi.onchange=()=>{upload([...fi.files]);fi.value='';};
+['dragover','dragenter'].forEach(e=>drop.addEventListener(e,v=>{v.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,v=>{v.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop',v=>upload([...v.dataTransfer.files]));
+
+function render(r){
+  const c=el('div','card');
+  const bs=el('div','badges');
+  bs.append(el('span','b '+(r.validated?'ok':'warn'),r.validated?'✓ validated':'⚠ not verified'));
+  r.route.forEach((t,i)=>bs.append(el('span','b',(i+1)+'. '+t.toUpperCase())));
+  bs.append(el('span','b',r.iterations+' iteration'+(r.iterations===1?'':'s')));
+  c.append(bs,el('div','ans',r.answer));
+  if(r.note)c.append(el('div','note',r.note));
+  if(r.sources.length){const d=el('details');d.append(el('summary','','Sources ('+r.sources.length+')'));
+    r.sources.forEach(s=>{const b=el('div','src');const h=el('div');h.append(el('b','','['+s.n+'] '));
+      if(s.url){const a=el('a','',s.title);a.href=s.url;a.target='_blank';a.rel='noopener noreferrer';h.append(a);}else h.append(document.createTextNode(s.title));
+      b.append(h,el('div','tx',s.text));d.append(b);});c.append(d);}
+  const d=el('details');d.append(el('summary','','Agent trace'));
+  r.trace.forEach(t=>{const row=el('div','step');row.append(el('span','n',t.node));
+    const dd=el('span','d');if(t.decision){const k=el('span',t.decision==='pass'?'pass':t.decision==='fail'?'fail':'',t.decision);dd.append(k,document.createTextNode(t.reason?' — '+t.reason:''));}else dd.textContent=t.detail||'';
+    row.append(dd,el('span','ms',(t.ms??'')+'ms'));d.append(row);});
+  c.append(d);return c;
+}
+$('#f').onsubmit=async ev=>{ev.preventDefault();const q=$('#q').value.trim();if(!q)return;$('#q').value='';$('#go').disabled=true;
+  const e=$('#empty');if(e)e.remove();out.append(el('div','card q',q));const p=el('div','card','Agent is working…');out.append(p);out.scrollTop=out.scrollHeight;
+  try{const r=await api('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});p.replaceWith(render(r));}
+  catch(err){p.textContent='Error: '+err.message;p.style.color='var(--bad)';}
+  $('#go').disabled=false;$('#q').focus();out.scrollTop=out.scrollHeight;};
+refresh().catch(e=>st(e.message,true));
+</script>
+</body>
+</html>
